@@ -19,12 +19,34 @@ function readCsvEnvOrDefault(key, fallback) {
   return values.length ? values : fallback
 }
 
+/**
+ * 群内屏蔽成员名单: '群名:成员A,成员B;另一群:成员C'
+ * 这些成员即使群在白名单 (ROOM_WHITELIST), 在对应群里 @AI 也不回复 (前端勾选群后手动取消勾选的成员)。
+ */
+function readRoomMemberExclude() {
+  const out = {}
+  const raw = env.ROOM_MEMBER_EXCLUDE || ''
+  for (const seg of raw.split(';')) {
+    const idx = seg.indexOf(':')
+    if (idx <= 0) continue
+    const room = seg.slice(0, idx).trim()
+    const members = seg
+      .slice(idx + 1)
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean)
+    if (room && members.length) out[room] = members
+  }
+  return out
+}
+
 export function getWechatRuntimeConfig() {
   return {
     botName: env.BOT_NAME || '',
     autoReplyPrefix: env.AUTO_REPLY_PREFIX || '',
     aliasWhiteList: readCsvEnv('ALIAS_WHITELIST'),
     roomWhiteList: readCsvEnv('ROOM_WHITELIST'),
+    roomMemberExclude: readRoomMemberExclude(),
     roomChatEnabled: env.ROOM_CHAT_ENABLED !== 'false',
     sensitiveWords: readCsvEnv('SENSITIVE_WORDS'),
     noMentionRooms: readCsvEnv('NO_MENTION_ROOMS'),

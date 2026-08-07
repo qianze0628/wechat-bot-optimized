@@ -246,6 +246,13 @@ export function createWechatBot(options = {}) {
         if (config.roomWhiteList.length > 0 && !config.roomWhiteList.includes(roomName)) {
           whitelistPass = false
           console.log(`🚫 群不在白名单: ${roomName}`)
+        } else if (whitelistPass && config.roomMemberExclude && config.roomMemberExclude[roomName]) {
+          // 群在白名单但发送者在"群内屏蔽名单" (前端取消勾选的成员) → 群里也不回复
+          const excluded = config.roomMemberExclude[roomName]
+          if (excluded.includes(contactName) || excluded.includes(contactRawName)) {
+            whitelistPass = false
+            console.log(`🚫 群内屏蔽成员: ${contactRawName || contactName} @ ${roomName}`)
+          }
         }
       } else {
         // 备注名或微信名任一在白名单即放行（兼容 alias 解析失败的情况）
