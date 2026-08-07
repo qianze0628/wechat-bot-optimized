@@ -5,6 +5,7 @@
 
 - 🔌 **OneBot v11 桥接**:消息事件推送到 AstrBot,回复经桥接发回微信
 - 📋 **白名单机制**:按联系人/群名精确控制谁可以触发 AI(同步 AstrBot 面板)
+- 🚫 **群内屏蔽成员**:勾选群后,可单独取消个别成员——他在群里 @AI 也不回复(私聊更不回复)
 - 👥 **群消息记录**:本地 `messages.jsonl` 持久化 + 群成员名本地反推
 - 🔑 **会话稳定映射**:用名字哈希生成稳定 user_id/group_id,不随登录态变化
 - 🖥️ **HTTP 管理 API**(端口 6189):`/api/contacts`(联系人/群/成员)、`/api/status`
@@ -52,6 +53,7 @@ http://127.0.0.1:6189/api/contacts    # 联系人/群/群成员
 | `BOT_NAME` | 你的微信昵称(群聊被@时触发) |
 | `ALIAS_WHITELIST` | 允许自动回复的联系人(逗号分隔) |
 | `ROOM_WHITELIST` | 允许自动回复的群聊(逗号分隔) |
+| `ROOM_MEMBER_EXCLUDE` | 群内屏蔽成员:`群名:成员A,成员B;另一群:成员C`(这些成员在群里 @AI 也不回复) |
 | `NO_MENTION_ROOMS` | 免@群(群内所有消息都触发) |
 | `SENSITIVE_WORDS` | AI 回复禁止出现的词(自动替换) |
 | `WECHAT_DATA_DIR` | 消息记录目录(默认 `.data/wechat`) |
