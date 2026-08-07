@@ -1,0 +1,27 @@
+# 依赖
+node_modules/
+
+# 微信运行时数据 (登录态 + 消息记录)
+.data/
+data/
+plugins/
+WechatEveryday.memory-card.json
+
+# 敏感配置 (.env 及所有备份)
+.env
+.env.*
+!*.example
+
+# 日志
+*.log
+
+# 备份/调试残留
+*.bak
+*.bak-*
+*.pre-astrbot2
+*.astrbot-backup
+*.bak[0-9]*
+
+# 系统
+.DS_Store
+Thumbs.db
