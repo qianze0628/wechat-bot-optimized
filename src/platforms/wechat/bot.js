@@ -54,9 +54,21 @@ const ROOM_PERSONA = {
 
 
 
+// 扫码节流: 避免 bot 反复重启高频调 jslogin 触发风控 (微信对网页版登录频率敏感)
+let lastScanAt = 0
+const SCAN_THROTTLE_MS = 30000 // 两次 onScan 至少间隔 30s (微信网页版二维码有效期内无需频繁刷新)
+
 function onScan(qrcode, status) {
 
+  const now = Date.now()
+
   if (status === ScanStatus.Waiting || status === ScanStatus.Timeout) {
+
+    // 节流: 距上次 onScan 不足 30s 且状态仍是 Waiting → 沿用旧二维码, 不重新触发
+    if (status === ScanStatus.Waiting && now - lastScanAt < SCAN_THROTTLE_MS) {
+      return
+    }
+    lastScanAt = now
 
     qrTerminal.generate(qrcode, { small: true })
 
@@ -88,9 +100,35 @@ function onLogin(user) {
 
 
 
+// 登出/断线自动重登 (指数退避): 微信网页版有 24h 强制登出 + 偶发断线,
+// 自动重登可把被动断线变成可控恢复。重试间隔 30s → 60s → 120s → 封顶 300s。
+let reloginAttempts = 0
+let reloginTimer = null
+
+function scheduleRelogin() {
+  if (reloginTimer) return // 已安排重登
+  const delay = Math.min(30000 * Math.pow(2, reloginAttempts), 300000)
+  reloginAttempts++
+  console.log(`🔄 ${reloginAttempts} 次登出/断线, ${Math.round(delay / 1000)}s 后尝试重新登录...`)
+  reloginTimer = setTimeout(async () => {
+    reloginTimer = null
+    try {
+      await bot.stop()
+      await bot.start()
+      reloginAttempts = 0 // 重登成功重置
+    } catch (e) {
+      console.log('🔄 重登失败:', e.message)
+      scheduleRelogin()
+    }
+  }, delay)
+}
+
 function onLogout(user) {
 
   console.log(`${user} has logged out`)
+
+  // 登出后自动重登 (指数退避)
+  scheduleRelogin()
 
 }
 
@@ -120,20 +158,33 @@ export function createWechatBot(options = {}) {
 
 
 
+  // puppet 可选 (环境变量 WECHATY_PUPPET):
+  //   默认 wechaty-puppet-wechat4u (免费纯JS跨平台, 微信旧网页版协议)
+  //   可选 wechaty-puppet-padlocal (iPad 协议, 需 WECHATY_PUPPET_PADLOCAL_TOKEN, 更稳定但商业付费)
+  //   (wechaty-puppet-wechat 已停维护且需 Chromium, 不推荐)
+  const puppet = process.env.WECHATY_PUPPET || 'wechaty-puppet-wechat4u'
+
+  const puppetOptions = {
+    uos: true,
+    ...chromeBin,
+  }
+  // UA 伪装: 跟随当前主流浏览器 (wechat4u 内置 UA 已过时, 可配置覆盖)
+  if (process.env.WECHATY_USER_AGENT) {
+    puppetOptions.userAgent = process.env.WECHATY_USER_AGENT
+  }
+  // padlocal 需要 token
+  if (puppet === 'wechaty-puppet-padlocal') {
+    puppetOptions.token = process.env.WECHATY_PUPPET_PADLOCAL_TOKEN || ''
+  }
+
   const bot = WechatyBuilder.build({
 
     name: 'WechatEveryDay',
 
-    puppet: 'wechaty-puppet-wechat4u',
+    puppet,
 
 
-    puppetOptions: {
-
-      uos: true,
-
-      ...chromeBin,
-
-    },
+    puppetOptions,
 
   })
 
