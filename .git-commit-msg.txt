@@ -1,0 +1,5 @@
+Fix: qr-server.js 改为 qr-server.cjs (ESM 包内 CommonJS 兼容)
+
+wechat-bot 的 package.json 声明 "type": "module", .js 文件被当 ESM 解析,
+qr-server.js 用 require 会报 "require is not defined" 崩溃。
+改为 .cjs 扩展名明确 CommonJS, 面板已支持 .cjs 回退查找。
