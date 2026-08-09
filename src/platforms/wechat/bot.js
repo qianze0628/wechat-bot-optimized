@@ -774,6 +774,47 @@ function startContactApi(bot) {
       }
     } else if (url.pathname === '/api/status' && req.method === 'GET') {
       res.end(JSON.stringify({ loggedIn: bot.logonoff() }))
+    } else if (url.pathname === '/api/chat' && req.method === 'GET') {
+      // 链路测试: 注入一条消息走 信息→wechat-bot→AstrBot→模型 完整链路
+      // 回复由 AstrBot 经 sendWechat 回发; 面板轮询日志/消息记录判断是否回复
+      try {
+        const text = url.searchParams.get('text') || ''
+        if (!text) { res.end(JSON.stringify({ ok: false, message: '缺少 text 参数' })); return }
+        const contactName = url.searchParams.get('contact') || ''
+        // 找到可发送的联系人 (私聊优先; 无则第一个联系人)
+        let target = null
+        const contacts = await bot.Contact.findAll()
+        if (contactName) {
+          target = contacts.find((c) => { try { return (c.name() === contactName) } catch (e) { return false } })
+        }
+        if (!target && contacts.length) target = contacts[0]
+        if (!target) { res.end(JSON.stringify({ ok: false, message: '无可用联系人 (未登录?)' })); return }
+        let nm = '微信用户'
+        try { nm = (await target.alias()) || (await target.name()) || '微信用户' } catch (e) {}
+        // 注入消息 (走 AstrBot 完整链路)
+        // userId 用联系人 id 的稳定哈希数字 (回复映射到真实联系人可回发);
+        // session 形如 wechat-bridge:FriendMessage:<userId> (不在白名单时需面板加白名单)
+        const rawId = target.id || nm
+        let h = 0
+        for (let i = 0; i < rawId.length; i++) h = ((h << 5) - h + rawId.charCodeAt(i)) | 0
+        const userId = String(Math.abs(h) % 100000000)
+        const sessionId = url.searchParams.get('session') || ('wechat-bridge:FriendMessage:' + userId)
+        const payload = {
+          messageType: 'private', // AstrBot 平台识别 private/group; 'text' 不识别会被丢弃
+          userId,
+          groupId: 0,
+          nickname: nm,
+          senderName: nm,
+          text,
+          forceAt: false,
+          sessionId,
+        }
+        const pushed = forwardEntry(payload)
+        console.log(`🧪 [chat-test] 注入消息: "${text}" → AstrBot pushed=${pushed}`)
+        res.end(JSON.stringify({ ok: true, pushed, contact: nm, message: '消息已注入完整链路 (信息→wechatbot→AstrBot→模型)' }))
+      } catch (e) {
+        res.end(JSON.stringify({ ok: false, message: '注入失败: ' + (e.message || e) }))
+      }
     } else if (url.pathname === '/api/avatar' && req.method === 'GET') {
       // 头像代理: ?name=联系人名 或 ?hashId=xxx — 用 wechat4u 登录态下载头像返回图片
       try {
