@@ -52,6 +52,19 @@ export async function mapMessageToSession(msg, contact, room, roomName) {
   }
 }
 
+/**
+ * 手动注册发送目标 (ChatUI 链路测试注入时调用)
+ * 让 AstrBot 的回复能经 sessionTargetMap 打回该联系人
+ * (正常链路由 mapMessageToSession 在真实消息到来时注册; 注入消息没有真实消息, 需显式注册)
+ */
+export function registerSendTarget(sessionId, target) {
+  if (!sessionId || !target) return
+  sessionTargetMap.set(sessionId, target)
+  if (target.type === 'private') {
+    contactMap.set(String(target.userId), { contact: target.contact, name: target.name || '' })
+  }
+}
+
 // 取显示名（兼容异步 name / alias）
 async function awaitSafeName(contact) {
   try {

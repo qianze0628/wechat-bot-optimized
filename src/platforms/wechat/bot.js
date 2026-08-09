@@ -31,7 +31,7 @@ function _localRoomMemberNames(roomName) {
 
 import { startOneBotBridge, pushWechatMessage, isBridgeConnected } from '../../wechaty/onebot-bridge.js'
 
-import { mapMessageToSession, getSendTarget, hashId as _hashIdRaw, rawIdToNameMap } from '../../wechaty/bridge-integration.js'
+import { mapMessageToSession, getSendTarget, hashId as _hashIdRaw, rawIdToNameMap, registerSendTarget } from '../../wechaty/bridge-integration.js'
 // 安全包装: hashId 对非字符串调用会报 charCodeAt 错
 function _hashId(v) { return _hashIdRaw(typeof v === 'string' ? v : String(v || '')) }
 
@@ -780,6 +780,38 @@ function startContactApi(bot) {
       try {
         const text = url.searchParams.get('text') || ''
         if (!text) { res.end(JSON.stringify({ ok: false, message: '缺少 text 参数' })); return }
+        // 群注入 (验证群聊链路用): ?group=群名
+        const groupName = url.searchParams.get('group') || ''
+        if (groupName) {
+          const rooms = await bot.Room.findAll()
+          let room = null
+          for (const r of rooms) {
+            let rn = ''
+            try { rn = (await r.topic()) || '' } catch (e) {}
+            if (rn === groupName) { room = r; break }
+          }
+          if (!room) {
+            res.end(JSON.stringify({ ok: false, message: `无此群: ${groupName}`, code: 'no_room' }))
+            return
+          }
+          const groupId = String(_hashIdRaw(groupName))
+          // 注册发送目标 (群回复映射)
+          try { registerSendTarget('group_' + groupId, { type: 'group', room, groupId }) } catch (e) {}
+          const gSession = 'wechat-bridge:GroupMessage:' + groupId
+          const gPayload = {
+            messageType: 'group',
+            userId: '10001',
+            groupId,
+            nickname: '微信用户',
+            senderName: '微信用户',
+            text,
+            forceAt: true, // 群消息需 @ 唤醒
+            sessionId: gSession,
+          }
+          const gPushed = forwardEntry(gPayload)
+          res.end(JSON.stringify({ ok: true, pushed: gPushed, group: groupName, groupId, message: '群消息已注入完整链路' }))
+          return
+        }
         const contactName = url.searchParams.get('contact') || ''
         // 找到可发送的联系人 (修复 A1: c.name() 是异步需 await; 无匹配明确报错, 不 fallback 真实好友)
         let target = null
@@ -802,12 +834,15 @@ function startContactApi(bot) {
         let nm = '微信用户'
         try { nm = (await target.alias()) || (await target.name()) || '微信用户' } catch (e) {}
         // 注入消息 (走 AstrBot 完整链路)
-        // userId 用联系人 id 的稳定哈希数字 (回复映射到真实联系人可回发);
-        // session 形如 wechat-bridge:FriendMessage:<userId> (不在白名单时需面板加白名单)
-        const rawId = target.id || nm
-        let h = 0
-        for (let i = 0; i < rawId.length; i++) h = ((h << 5) - h + rawId.charCodeAt(i)) | 0
-        const userId = String(Math.abs(h) % 100000000)
+        // userId 用联系人显示名 (alias || name) 哈希 → 与正常链路 mapMessageToSession 的 hashId(name) 一致,
+        // 回复才能经 sessionTargetMap 映射回真实联系人 (session 格式 wechat-bridge:FriendMessage:<userId>)
+        // 修复: 之前用 target.id (rawId) 哈希 → 与 sessionTargetMap 的 hashId(name) 不匹配 → 回复发不出
+        // userId 用与正常链路完全一致的 hashId(name) = abs(hash)+10000
+        // (修复 C4: 之前用 %1e8 截断 → 与白名单 id_whitelist 的 hashId(name) 不匹配 → AstrBot 白名单拦截不回复)
+        const userId = String(_hashIdRaw(nm))
+        // 注册发送目标: 让 AstrBot 回复能经 sessionTargetMap 打回该联系人 (修复 C3: 注入后对方收不到)
+        const targetKey = 'user_' + userId
+        try { registerSendTarget(targetKey, { type: 'private', contact: target, userId, name: nm }) } catch (e) { console.log('⚠️ registerSendTarget 失败:', e.message) }
         const sessionId = url.searchParams.get('session') || ('wechat-bridge:FriendMessage:' + userId)
         const payload = {
           messageType: 'private', // AstrBot 平台识别 private/group; 'text' 不识别会被丢弃
