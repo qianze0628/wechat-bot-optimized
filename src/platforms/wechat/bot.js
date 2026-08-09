@@ -781,14 +781,24 @@ function startContactApi(bot) {
         const text = url.searchParams.get('text') || ''
         if (!text) { res.end(JSON.stringify({ ok: false, message: '缺少 text 参数' })); return }
         const contactName = url.searchParams.get('contact') || ''
-        // 找到可发送的联系人 (私聊优先; 无则第一个联系人)
+        // 找到可发送的联系人 (修复 A1: c.name() 是异步需 await; 无匹配明确报错, 不 fallback 真实好友)
         let target = null
         const contacts = await bot.Contact.findAll()
         if (contactName) {
-          target = contacts.find((c) => { try { return (c.name() === contactName) } catch (e) { return false } })
+          for (const c of contacts) {
+            try {
+              const nmC = (await c.alias()) || (await c.name()) || ''
+              if (nmC === contactName) { target = c; break }
+            } catch (e) {}
+          }
+        } else if (url.searchParams.get('test') === '1') {
+          // 显式测试模式才用第一个联系人 (避免误发真实好友)
+          if (contacts.length) target = contacts[0]
         }
-        if (!target && contacts.length) target = contacts[0]
-        if (!target) { res.end(JSON.stringify({ ok: false, message: '无可用联系人 (未登录?)' })); return }
+        if (!target) {
+          res.end(JSON.stringify({ ok: false, message: '无可用联系人 (未登录? 或 contact 不匹配)', code: 'no_contact' }))
+          return
+        }
         let nm = '微信用户'
         try { nm = (await target.alias()) || (await target.name()) || '微信用户' } catch (e) {}
         // 注入消息 (走 AstrBot 完整链路)
@@ -810,8 +820,9 @@ function startContactApi(bot) {
           sessionId,
         }
         const pushed = forwardEntry(payload)
-        console.log(`🧪 [chat-test] 注入消息: "${text}" → AstrBot pushed=${pushed}`)
-        res.end(JSON.stringify({ ok: true, pushed, contact: nm, message: '消息已注入完整链路 (信息→wechatbot→AstrBot→模型)' }))
+        console.log(`🧪 [chat-test] 注入消息: "${text}" → AstrBot pushed=${pushed} user=${userId}`)
+        // C1: 返回注入的 userId 供面板过滤回复 (只显示本次会话的回复)
+        res.end(JSON.stringify({ ok: true, pushed, contact: nm, userId, message: '消息已注入完整链路 (信息→wechatbot→AstrBot→模型)' }))
       } catch (e) {
         res.end(JSON.stringify({ ok: false, message: '注入失败: ' + (e.message || e) }))
       }
