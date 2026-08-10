@@ -4,6 +4,8 @@ import http from 'http'
 
 import path from 'path'
 
+import fs from 'fs'
+
 import { MemoryCard } from 'memory-card'
 
 import qrTerminal from 'qrcode-terminal'
@@ -11,6 +13,9 @@ import qrTerminal from 'qrcode-terminal'
 import { defaultMessage } from '../../wechaty/sendMessage.js'
 
 import { captureWechatMessage, loadWechatMessages } from './messageStore.js'
+
+// ===== 本地指令意图正则已移除 (2026-08-10) =====
+// 预设拦截(截图/看桌面)全部删除 — 统一走 AstrBot LLM 工具调用
 
 // 从本地消息记录提取某群的真实成员昵称 (微信侧成员名可能解析失败时的兜底)
 function _localRoomMemberNames(roomName) {
@@ -264,7 +269,10 @@ export function createWechatBot(options = {}) {
 
     // 群聊需被@才转发（mentionSelf 通用检测，不依赖备注名），私聊直接转发
     const content = message.text()
-    let isMentioned = content.includes(config.botName)
+    // 机器人身份名: .env BOT_NAME + 已知微信名/备注名 (防 BOT_NAME 未配置时无法唤醒)
+    const botNameConfig = (config.botName || '').replace(/^@/, '')
+    const botAliases = [botNameConfig, '超帅内向小学生', '徐邵博他爹'].filter(Boolean)
+    let isMentioned = botAliases.some((n) => n && content.includes(n))
     try {
       if (await message.mentionSelf()) isMentioned = true
     } catch (e) {}
@@ -274,14 +282,13 @@ export function createWechatBot(options = {}) {
     const isQuoteMsg = !!quoteMatch
     if (isQuoteMsg) {
       const quotedName = (quoteMatch[1] || '').trim()
-      // 被引用人是否机器人 (匹配 botName 或微信名/备注名)
-      const botNameRaw = (config.botName || '').replace(/^@/, '')
-      const botNames = new Set([botNameRaw, '超帅内向小学生', '徐邵博他爹'].filter(Boolean))
-      if (botNames.has(quotedName) || quotedName.includes(botNameRaw)) {
+      if (botAliases.some((n) => n && (quotedName === n || quotedName.includes(n)))) {
         isMentioned = true
       }
     }
-    const neededMentionInRoom = room ? isMentioned : true
+    // 免@群 (NO_MENTION_ROOMS): 群内所有消息自动转发, 无需 @ (修复: 之前只看 isMentioned, 免@群消息全被丢)
+    const noMentionRoom = room ? ((config.noMentionRooms || []).includes(roomName)) : false
+    const neededMentionInRoom = room ? (isMentioned || noMentionRoom) : true
 
     // ===== 白名单过滤（按名字, 由 .env 的 ALIAS_WHITELIST / ROOM_WHITELIST 控制）=====
     // 白名单由插件管理: /白名单添加 会更新 .env 并重启 wechat-bot
@@ -315,6 +322,11 @@ export function createWechatBot(options = {}) {
     } catch (e) { console.log('🔬 白名单判断异常:', e.message) }
 
     console.log(`🔬 判定: isSelf=${isSelf} 文本=${isText} 图片=${isImage} 视频=${isVideo} room=${roomName||'无'} @条件=${neededMentionInRoom} 白名单=${whitelistPass}`)
+
+    // ===== 本地指令拦截已移除 (2026-08-10) =====
+    // 之前用正则预设"截图/看桌面"直接本地处理 — 用户明确不要预设,
+    // 要求与私聊一致: LLM 思考 → 调用工具(astrbot_execute_shell 等) → 结果回发。
+    // 工具调用由 AstrBot 侧管理 (computer_use_runtime=local), 这里不再拦截。
 
     if (!isSelf && (isText || isMedia) && neededMentionInRoom && whitelistPass) {
       try {
@@ -780,6 +792,7 @@ function startContactApi(bot) {
       try {
         const text = url.searchParams.get('text') || ''
         if (!text) { res.end(JSON.stringify({ ok: false, message: '缺少 text 参数' })); return }
+        // 截图/桌面预设分支已移除 (2026-08-10): 统一走 LLM 工具调用, 与私聊一致
         // 群注入 (验证群聊链路用): ?group=群名
         const groupName = url.searchParams.get('group') || ''
         if (groupName) {
@@ -941,6 +954,8 @@ function bufferMessage(base, content, forceAt) {
   const existing = messageBuffer.get(key)
   if (existing && now - existing.time < 3000) {
     existing.texts.push(content)
+    // 任一消息带 @唤醒 → 合并后整体保留唤醒 (修复: 之前取首个 forceAt, 第二条才@时唤醒丢失)
+    existing.forceAt = existing.forceAt || forceAt
     existing.time = now
     return
   }
@@ -981,4 +996,5 @@ function forwardEntry(payload) {
   console.log(`🔀 消息转发AstrBot: pushed=${pushed} session=${payload.sessionId || ''}`)
   return pushed
 }
+
 

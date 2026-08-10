@@ -332,11 +332,15 @@ export function pushWechatMessage(data) {
     quoteSender = quoteMatch[1]
   }
   // 群消息: @ 消息(唤醒) 或 引用消息(仅附 reply 段, 唤醒由 AstrBot 判断是否引用机器人)
-  const hasMention = data.messageType === 'group' && /@[一-龥a-zA-Z0-9_\-\s]{0,20}/.test(rawText)
+  // @名 剥除: 只剥"@后紧跟微信名(最多20字符, 不含空格换行)"的完整 @段, 绝不吞后面的正文
+  // 修复: 旧正则 /@[一-龥a-zA-Z0-9_\-\s]{0,20}/ 的 \s 含空格+贪婪 → 会把 "@名 你是谁@其他人" 的正文一并剥掉 → 文本丢光 → AstrBot 空@风暴答非所问
+  const hasMention = data.messageType === 'group' &&
+    /@[一-龥a-zA-Z0-9_\-]{1,20}/.test(rawText)
   if (hasMention || isQuote || (data.messageType === 'group' && data.forceAt)) {
+    // 剥掉每个 @名 (名不跨空格; 名后若有空格则保留空格, 正文随之保留)
     let body = rawText
       .replace(/「[\s\S]*?」\s*\n-{5,}\n/, '')  // 剥掉引用头
-      .replace(/@[一-龥a-zA-Z0-9_\-\s]{0,20}/g, '')  // 剥掉 @名
+      .replace(/@[一-龥a-zA-Z0-9_\-]{1,20}/g, (m) => m.replace(/./g, ''))  // 只剥 @名, 不动后续正文
       .trim()
     if (body) segments.push({ type: 'text', data: { text: body } })
     // 引用消息: 附 reply 段 (AstrBot 会调 get_msg 判断被引用人)
@@ -351,7 +355,15 @@ export function pushWechatMessage(data) {
   if (data.imageBase64) segments.push({ type: 'image', data: { file: `base64://${data.imageBase64}` } })
   else if (data.imageUrl) segments.push({ type: 'image', data: { file: data.imageUrl, url: data.imageUrl } })
   if (data.videoUrl) segments.push({ type: 'video', data: { file: data.videoUrl, url: data.videoUrl } })
-  if (!segments.length) segments.push({ type: 'text', data: { text: '[空消息]' } })
+  if (!segments.length) {
+    // 剥@后正文为空: 不推"[空消息]"假文本 (修复 2026-08-10: [空消息] 会让 LLM 把"上一句"当成"[空消息]")
+    // 优先保留原始文本 (仅剥引用头, 保留 @名与正文原样), 仅在原文也为空时兜底
+    if (rawText && rawText.trim()) {
+      segments.push({ type: 'text', data: { text: rawText.replace(/「[\s\S]*?」\s*\n-{5,}\n/, '').trim() } })
+    } else {
+      segments.push({ type: 'text', data: { text: '[空消息]' } })
+    }
+  }
   const rawMessage = data.text || (data.imageUrl ? '[图片]' : data.videoUrl ? '[视频]' : '')
   const event = {
     post_type: 'message',
