@@ -109,10 +109,10 @@ function readLocalGroupMessages(groupId, count = 100) {
         result.push({
           message_id: String(d.id || ''),
           real_id: String(d.id || ''),
-          user_id: String(d.talkerName || ''),
+          user_id: String(hashId(d.talkerName || '')),
           message: [{ type: 'text', data: { text: d.text } }],
           raw_message: d.text,
-          sender: { user_id: String(d.talkerName || ''), nickname: d.talkerName || '', card: '' },
+          sender: { user_id: String(hashId(d.talkerName || '')), nickname: d.talkerName || '', card: '' },
           time: Math.floor(new Date(d.timestamp).getTime() / 1000),
         })
       } catch (e) {}
@@ -337,11 +337,21 @@ export function pushWechatMessage(data) {
   const hasMention = data.messageType === 'group' &&
     /@[一-龥a-zA-Z0-9_\-]{1,20}/.test(rawText)
   if (hasMention || isQuote || (data.messageType === 'group' && data.forceAt)) {
-    // 剥掉每个 @名 (名不跨空格; 名后若有空格则保留空格, 正文随之保留)
+    // 剥@逻辑 (修复 2026-08-10):
+    // 1) 只剥"@机器人名"(botName), 其他 @名 保留在正文 → 插件命令(如"画像 @群友")能读到目标
+    //    (之前把全部 @名 剥掉 → portrayal 拿不到目标 → 命令不触发)
+    // 2) @机器人 剥掉后附 At(self) 唤醒段
+    const botNames = [String(data.botName || '').replace(/^@/, ''), '超帅内向小学生', '徐邵博他爹'].filter(Boolean)
+    const mentionRe = /@([一-龥a-zA-Z0-9_\-]{1,20})/g
     let body = rawText
       .replace(/「[\s\S]*?」\s*\n-{5,}\n/, '')  // 剥掉引用头
-      .replace(/@[一-龥a-zA-Z0-9_\-]{1,20}/g, (m) => m.replace(/./g, ''))  // 只剥 @名, 不动后续正文
-      .trim()
+    body = body.replace(mentionRe, (m, name) => {
+      // 只剥 @机器人 名 (保留其他 @名 供插件命令使用)
+      if (botNames.includes(name) || botNames.some((n) => name.includes(n))) {
+        return ''
+      }
+      return m // 保留非机器人 @名
+    }).trim()
     if (body) segments.push({ type: 'text', data: { text: body } })
     // 引用消息: 附 reply 段 (AstrBot 会调 get_msg 判断被引用人)
     if (isQuote) segments.push({ type: 'reply', data: { id: String(data.messageId || ''), name: quoteSender } })

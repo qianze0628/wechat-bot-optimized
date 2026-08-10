@@ -390,6 +390,16 @@ export function createWechatBot(options = {}) {
             forwardEntry({ ...base, text: content, forceAt: true })
             return
           }
+          // 已知插件命令 (无 / 前缀): 也 forceAt 唤醒, 否则插件 handler 不触发 (修复 2026-08-10:
+          // "画像 @群友" 等命令不带 @机器人 → AstrBot 不唤醒 → 插件不执行 → 落 LLM 答非所问)
+          const cmdWord = (content.trimStart().split(/\s+/)[0] || '').replace(/^@[一-龥a-zA-Z0-9_\-]{1,20}/, '')
+          const knownCommands = ['画像', '查看画像', '正画像', '负画像', '克隆人格', '切换人格', '文生图', 'aiimg', '生图', '画图', '绘图', '出图', '改图', '图生图', '修图', 'aiedit', '自拍', '批量', '重发图片', '群分析', '白名单', '管理员', '打卡', '查询', '搜索', '天气', 'help', '帮助', '菜单']
+          // 前缀匹配: "白名单添加" 命中 "白名单" 等
+          const isKnownCmd = knownCommands.some((k) => cmdWord === k || cmdWord.startsWith(k))
+          if (isKnownCmd) {
+            forwardEntry({ ...base, text: content, forceAt: true })
+            return
+          }
           // 普通文本消息：进入合并缓冲（3秒内连续消息合并成一条，防刷屏）
           bufferMessage(base, content, base.forceAt)
           return
