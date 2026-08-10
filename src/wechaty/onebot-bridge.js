@@ -363,6 +363,7 @@ export function pushWechatMessage(data) {
     message: segments,
     sender: {
       user_id: data.userId,
+      qq: data.userId, // OneBot 规范字段 (AstrBot/插件可能访问 sender.qq)
       nickname: data.nickname || '微信用户',
       card: data.nickname || '',
     },
