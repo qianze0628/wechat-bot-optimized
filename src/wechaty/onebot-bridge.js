@@ -571,7 +571,10 @@ export function pushWechatMessage(data) {
   }
   if (data.imageBase64) segments.push({ type: 'image', data: { file: `base64://${data.imageBase64}` } })
   else if (data.imageUrl) segments.push({ type: 'image', data: { file: data.imageUrl, url: data.imageUrl } })
-  if (data.videoUrl) segments.push({ type: 'video', data: { file: data.videoUrl, url: data.videoUrl } })
+  if (data.videoBase64) segments.push({ type: 'video', data: { file: `base64://${data.videoBase64}` } })
+  else if (data.videoUrl) segments.push({ type: 'video', data: { file: data.videoUrl, url: data.videoUrl } })
+  if (data.audioBase64) segments.push({ type: 'record', data: { file: `base64://${data.audioBase64}` } })
+  else if (data.audioUrl) segments.push({ type: 'record', data: { file: data.audioUrl, url: data.audioUrl } })
   if (!segments.length) {
     // 剥@后正文为空: 不推"[空消息]"假文本 (修复 2026-08-10: [空消息] 会让 LLM 把"上一句"当成"[空消息]")
     // 优先保留原始文本 (仅剥引用头, 保留 @名与正文原样), 仅在原文也为空时兜底

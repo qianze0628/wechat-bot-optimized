@@ -273,12 +273,14 @@ export function createWechatBot(options = {}) {
     let isSelf = false
     try { isSelf = message.self && message.self() } catch (e) { console.log('🔬 self()异常:', e.message) }
 
-    // 已过滤：文本(7)、图片(6)、视频(15) 才转发（自己发的跳过）
+    // 已过滤：文本(7)、图片(6)、视频(15)、音频(2) 才转发（自己发的跳过）
+    // 修复 (2026-08-11): 之前缺 Audio → 微信语音消息完全被忽略
     const msgType = message.type()
     const isText = msgType === bot.Message.Type.Text
     const isImage = msgType === bot.Message.Type.Image
     const isVideo = msgType === bot.Message.Type.Video
-    const isMedia = isImage || isVideo
+    const isAudio = msgType === bot.Message.Type.Audio
+    const isMedia = isImage || isVideo || isAudio
 
     // 群聊需被@才转发（mentionSelf 通用检测，不依赖备注名），私聊直接转发
     const content = message.text()
@@ -345,22 +347,28 @@ export function createWechatBot(options = {}) {
       try {
         const session = await mapMessageToSession(message, contact, room, roomName)
 
-        // 图片/视频：取文件 Box，优先 base64（wechat4u 的 FileBox 是二进制流，无 url）
+        // 图片/视频/音频：取文件 Box，优先 base64（wechat4u 的 FileBox 是二进制流，无 url）
         let imageUrl = null
         let videoUrl = null
+        let audioUrl = null
         let imageBase64 = null
-        if (isImage || isVideo) {
+        let videoBase64 = null
+        let audioBase64 = null
+        if (isImage || isVideo || isAudio) {
           try {
             const box = await message.toFileBox()
             if (box) {
               if (box.url) {
                 // 有 URL（如表情包的 cdnurl）
                 if (isImage) imageUrl = box.url
-                else videoUrl = box.url
+                else if (isVideo) videoUrl = box.url
+                else audioUrl = box.url
                 console.log(`🔬 媒体文件URL: ${box.url}`)
               } else if (box.base64) {
-                // wechat4u 图片/视频: base64 数据
+                // wechat4u 图片/视频/音频: base64 数据
                 if (isImage) imageBase64 = box.base64
+                else if (isVideo) videoBase64 = box.base64
+                else audioBase64 = box.base64
                 console.log(`🔬 媒体文件 base64: ${box.base64.length} 字符`)
               } else if (box.stream) {
                 // 从 stream 读 base64
@@ -368,6 +376,8 @@ export function createWechatBot(options = {}) {
                 for await (const c of box.stream()) chunks.push(c)
                 const buf = Buffer.concat(chunks)
                 if (isImage) imageBase64 = buf.toString('base64')
+                else if (isVideo) videoBase64 = buf.toString('base64')
+                else audioBase64 = buf.toString('base64')
                 console.log(`🔬 媒体文件 stream→base64: ${buf.length} 字节`)
               } else {
                 console.log('🔬 媒体文件无 URL/base64/stream（仅标记类型）')
@@ -378,7 +388,7 @@ export function createWechatBot(options = {}) {
           }
         }
 
-        const sendText = isText ? content : (isImage ? '[图片]' : '[视频]')
+        const sendText = isText ? content : (isImage ? '[图片]' : isVideo ? '[视频]' : '[语音]')
         let senderName = '微信用户'
         try { senderName = (await contact.alias()) || (await contact.name()) || '微信用户' } catch (e) {}
 
@@ -394,6 +404,9 @@ export function createWechatBot(options = {}) {
           imageUrl,
           imageBase64,
           videoUrl,
+          videoBase64,
+          audioUrl,
+          audioBase64,
           forceAt: room ? ((config.noMentionRooms || []).includes(roomName) || isMentioned) : false,
         }
 
@@ -1058,6 +1071,9 @@ function forwardEntry(payload) {
     imageUrl: payload.imageUrl,
     imageBase64: payload.imageBase64,
     videoUrl: payload.videoUrl,
+    videoBase64: payload.videoBase64,
+    audioUrl: payload.audioUrl,
+    audioBase64: payload.audioBase64,
     botName: getGlobalConfig().botName,
     forceAt: payload.forceAt,
   })
