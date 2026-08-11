@@ -45,7 +45,20 @@ import { getWechatRuntimeConfig } from '../../config/env.js'
 // 全局运行时配置（文件级函数用，启动时赋值）
 let globalConfig = null
 function getGlobalConfig() {
-  if (!globalConfig) globalConfig = getWechatRuntimeConfig()
+  if (!globalConfig) {
+    globalConfig = getWechatRuntimeConfig()
+    // 防御 (2026-08-11): .env 白名单编码损坏检测 — 中文群名/联系人被旧工具写成 '?' 时
+    // 群聊/私聊会被白名单全拦 (超短群 @ 不回复的根因)。检测到立即告警。
+    try {
+      const badRooms = (globalConfig.roomWhiteList || []).filter((n) => /^[?]{1,}$/.test(n))
+      const badAlias = (globalConfig.aliasWhiteList || []).filter((n) => /^[?]{1,}$/.test(n))
+      if (badRooms.length > 0 || badAlias.length > 0) {
+        console.log('⚠️⚠️ [.env 编码损坏] 白名单含乱码条目 (中文被写坏成 ?):')
+        if (badRooms.length) console.log(`  ROOM_WHITELIST 乱码: ${badRooms.join(',')} — 这些群将无法回复! 请在面板「白名单与管理员」页重新勾选群保存`)
+        if (badAlias.length) console.log(`  ALIAS_WHITELIST 乱码: ${badAlias.join(',')} — 这些联系人将无法回复!`)
+      }
+    } catch (e) {}
+  }
   return globalConfig
 }
 
