@@ -474,7 +474,9 @@ async function handleApiCall(msg) {
       // - friend_poke/send_poke/set_msg_emoji_like 等微信无等价物 → 静默成功 (不影响主流程)
       const a = String(action || '')
       const readOnly = a.startsWith('get_')
-      const silentPoke = !readOnly && (a === 'friend_poke' || a === 'send_poke' || a === 'set_msg_emoji_like' || a === 'set_qq_profile' || a === 'set_qq_avatar' || a.includes('album') || a.includes('group_root'))
+      // 微信无等价物但插件容错的操作: 静默成功 (不影响主流程)
+      // 注意排除 upload_* (写操作, 应诚实失败, 如 upload_image_to_qun_album)
+      const silentPoke = !readOnly && !a.startsWith('upload_') && !a.startsWith('delete_') && (a === 'friend_poke' || a === 'send_poke' || a === 'set_msg_emoji_like' || a === 'set_qq_profile' || a === 'set_qq_avatar' || a.includes('album') || a.includes('group_root'))
       if (silentPoke) {
         result = { retcode: 0, status: 'ok', data: {} } // 静默成功, 微信无此功能但失败会中断插件
       } else if (readOnly) {
