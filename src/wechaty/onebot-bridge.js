@@ -347,6 +347,8 @@ async function handleApiCall(msg) {
     case 'get_group_member_info':
     case 'get_stranger_info': {
       // @ 段解析需要: 返回成员信息(从本地消息记录反查昵称)
+      // 修复 (2026-08-11): 补齐 sex/shut_up_time 字段 (portrayal 群成员 / daily_analysis 用到,
+      // 缺失时插件可能取不到; 微信无法提供真实值, 返回中性值)
       const userId = String(params.user_id || '')
       // userId 可能是 hashId(名字) 或真实名字, 尽力反查
       result.data = {
@@ -355,6 +357,9 @@ async function handleApiCall(msg) {
         nickname: resolveUserName(userId),
         card: resolveUserName(userId),
         role: 'member',
+        sex: 'unknown',
+        age: 0,
+        shut_up_time: 0,
       }
       break
     }
