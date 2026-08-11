@@ -506,6 +506,36 @@ const target = getSendTarget(sessionId)
         } catch (e) {
           console.log('🔬 图片 FileBox 创建失败:', e.message)
         }
+        // 视频: 优先 base64, 其次 url (2026-08-11 适配 api聚合 Video 段)
+        let videoFileBox = null
+        try {
+          const { FileBox } = await import('file-box')
+          if (media?.videoBase64) {
+            const buf = Buffer.from(media.videoBase64, 'base64')
+            videoFileBox = FileBox.fromBuffer(buf, 'video.mp4')
+            console.log(`🔬 视频 base64 → FileBox: ${buf.length} 字节`)
+          } else if (media?.videoUrl) {
+            videoFileBox = FileBox.fromUrl(media.videoUrl, { name: 'video.mp4' })
+            console.log(`🔬 视频 URL → FileBox: ${media.videoUrl}`)
+          }
+        } catch (e) {
+          console.log('🔬 视频 FileBox 创建失败:', e.message)
+        }
+        // 音频: 优先 base64, 其次 url (2026-08-11 适配 api聚合 Record 段)
+        let audioFileBox = null
+        try {
+          const { FileBox } = await import('file-box')
+          if (media?.audioBase64) {
+            const buf = Buffer.from(media.audioBase64, 'base64')
+            audioFileBox = FileBox.fromBuffer(buf, 'audio.mp3')
+            console.log(`🔬 音频 base64 → FileBox: ${buf.length} 字节`)
+          } else if (media?.audioUrl) {
+            audioFileBox = FileBox.fromUrl(media.audioUrl, { name: 'audio.mp3' })
+            console.log(`🔬 音频 URL → FileBox: ${media.audioUrl}`)
+          }
+        } catch (e) {
+          console.log('🔬 音频 FileBox 创建失败:', e.message)
+        }
 
         const sayTarget = target.type === 'group' && target.room ? target.room : (target.contact || null)
 
@@ -551,6 +581,16 @@ const target = getSendTarget(sessionId)
           if (imageFileBox) {
             await sayTarget.say(imageFileBox)
             console.log(`📤 图片已发送 (${target.type}): ${imageFileBox.name}`)
+          }
+          // 视频 (wechat4u 视频发送: FileBox 类型需识别)
+          if (videoFileBox) {
+            await sayTarget.say(videoFileBox)
+            console.log(`📤 视频已发送 (${target.type}): ${videoFileBox.name}`)
+          }
+          // 音频 (wechat4u 语音: 可能限制, 尽力发送)
+          if (audioFileBox) {
+            await sayTarget.say(audioFileBox)
+            console.log(`📤 音频已发送 (${target.type}): ${audioFileBox.name}`)
           }
         } catch (e) {
           console.error(`❌ 发送微信失败 (${target.type}):`, e.message)

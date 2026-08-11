@@ -305,6 +305,12 @@ async function handleApiCall(msg) {
       // 提取图片段: 优先 base64, 其次 url
       let imageBase64 = null
       let imageUrl = null
+      // 视频段 (2026-08-11 适配: api聚合插件返回 Video 段, 微信发送 FileBox)
+      let videoUrl = null
+      let videoBase64 = null
+      // 音频段 (Record)
+      let audioUrl = null
+      let audioBase64 = null
       // 提取 at 段 (@目标用户, 发送时转成微信 @)
       let atUserIds = []
       const msgList = Array.isArray(params.message) ? params.message : []
@@ -314,17 +320,25 @@ async function handleApiCall(msg) {
           if (f.startsWith('base64://')) imageBase64 = f.slice(9)
           else if (f) imageUrl = f
           else if (seg.data?.url) imageUrl = seg.data.url
+        } else if (seg.type === 'video') {
+          const f = seg.data?.file || seg.data?.url || ''
+          if (f.startsWith('base64://')) videoBase64 = f.slice(9)
+          else if (f) videoUrl = f
+        } else if (seg.type === 'record') {
+          const f = seg.data?.file || seg.data?.url || ''
+          if (f.startsWith('base64://')) audioBase64 = f.slice(9)
+          else if (f) audioUrl = f
         } else if (seg.type === 'at' && seg.data?.qq && String(seg.data.qq) !== String(msg.self_id || 10001)) {
           atUserIds.push(String(seg.data.qq))
         }
       }
       const userId = params.user_id
       const groupId = params.group_id
-      console.log(`📤 发送消息: ${text} → user=${userId} group=${groupId} image=${imageBase64 ? 'base64(' + imageBase64.length + ')' : (imageUrl || '无')} at=${atUserIds.join(',')}`)
+      console.log(`📤 发送消息: ${text} → user=${userId} group=${groupId} image=${imageBase64 ? 'base64(' + imageBase64.length + ')' : (imageUrl || '无')} video=${videoUrl || (videoBase64 ? 'base64(' + videoBase64.length + ')' : '无')} audio=${audioUrl || (audioBase64 ? 'base64(' + audioBase64.length + ')' : '无')} at=${atUserIds.join(',')}`)
       if (sendWechatMessage) {
         const sessionId = groupId ? `group_${groupId}` : `user_${userId}`
         try {
-          await sendWechatMessage(sessionId, text, { imageBase64, imageUrl, atUserIds, groupId })
+          await sendWechatMessage(sessionId, text, { imageBase64, imageUrl, videoUrl, videoBase64, audioUrl, audioBase64, atUserIds, groupId })
           result.data = { message_id: Math.floor(Math.random() * 100000) }
         } catch (e) {
           console.error('❌ 发送微信失败:', e.message)
