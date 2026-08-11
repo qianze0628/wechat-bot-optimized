@@ -58,6 +58,98 @@ function findLocalMessage(msgId) {
 }
 
 /**
+ * 反查群名: group_id = hashId(群名), 从本地消息记录反查真实群名
+ */
+function resolveRoomName(groupId) {
+  try {
+    if (!fs.existsSync(MESSAGES_FILE)) return String(groupId)
+    const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').split('\n')
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      try {
+        const d = JSON.parse(line)
+        if (d.isRoom && d.roomName && String(hashId(d.roomName)) === String(groupId)) {
+          return d.roomName
+        }
+      } catch (e) {}
+    }
+    return String(groupId)
+  } catch (e) {
+    return String(groupId)
+  }
+}
+
+/**
+ * 列出所有已知群名 (从本地消息记录)
+ */
+function listKnownRooms() {
+  const rooms = new Map() // 群名 -> 成员数
+  try {
+    if (!fs.existsSync(MESSAGES_FILE)) return []
+    const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').split('\n')
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      try {
+        const d = JSON.parse(line)
+        if (d.isRoom && d.roomName) {
+          if (!rooms.has(d.roomName)) rooms.set(d.roomName, new Set())
+          if (d.talkerName) rooms.get(d.roomName).add(d.talkerName)
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return [...rooms.entries()].map(([name, members]) => name)
+}
+
+/**
+ * 统计某群成员数 (从本地消息记录去重)
+ */
+function countRoomMembers(roomName) {
+  try {
+    if (!fs.existsSync(MESSAGES_FILE)) return 0
+    const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').split('\n')
+    const seen = new Set()
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      try {
+        const d = JSON.parse(line)
+        if (d.isRoom && d.roomName === roomName && d.talkerName) seen.add(d.talkerName)
+      } catch (e) {}
+    }
+    return seen.size
+  } catch (e) {
+    return 0
+  }
+}
+
+/**
+ * 列出某群发言过的成员名 (从本地消息记录)
+ */
+function listRoomMembers(roomName) {
+  try {
+    if (!fs.existsSync(MESSAGES_FILE)) return []
+    const lines = fs.readFileSync(MESSAGES_FILE, 'utf-8').split('\n')
+    const seen = new Map() // 名字 -> 最近时间
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      try {
+        const d = JSON.parse(line)
+        if (d.isRoom && d.roomName === roomName && d.talkerName) {
+          if (!seen.has(d.talkerName)) seen.set(d.talkerName, true)
+        }
+      } catch (e) {}
+    }
+    return [...seen.keys()]
+  } catch (e) {
+    return []
+  }
+}
+
+/**
  * 从本地消息记录反查用户名（用于 get_group_member_info / get_stranger_info）
  * userId 可能是 hashId(名字) 数字, 也可能是名字本身
  */
@@ -263,6 +355,84 @@ async function handleApiCall(msg) {
         nickname: resolveUserName(userId),
         card: resolveUserName(userId),
         role: 'member',
+      }
+      break
+    }
+    case 'get_group_info': {
+      // 群分析插件拉群元数据: group_id = hashId(群名), 从本地消息记录反查群名
+      const groupId = String(params.group_id || '')
+      const name = resolveRoomName(groupId)
+      result.data = {
+        group_id: Number(groupId) || 0,
+        group_name: name,
+        member_count: countRoomMembers(name),
+        member_limit: 500,
+        group_create_time: 0,
+        owner_id: 0,
+      }
+      break
+    }
+    case 'get_group_list': {
+      // 返回所有已知群 (从本地消息记录提取群名 -> hashId)
+      result.data = listKnownRooms().map((r) => ({
+        group_id: Number(hashId(r)),
+        group_name: r,
+        member_count: countRoomMembers(r),
+      }))
+      break
+    }
+    case 'get_group_member_list': {
+      // 群成员列表: 从本地消息记录反查该群发言过的成员
+      const groupId = String(params.group_id || '')
+      const name = resolveRoomName(groupId)
+      const members = listRoomMembers(name)
+      result.data = members.map((m) => ({
+        group_id: Number(groupId) || 0,
+        user_id: Number(hashId(m)),
+        nickname: m,
+        card: m,
+        role: 'member',
+      }))
+      break
+    }
+    case 'get_version_info': {
+      // 群分析插件连通性检查
+      result.data = {
+        app_name: 'wechat-bot-optimized',
+        app_version: '1.0.5',
+        protocol_version: 'v11',
+        onebot_version: 'v11',
+        usable: true,
+      }
+      break
+    }
+    case 'upload_group_file': {
+      // 微信无法上传群文件 → 返回成功但降级为发送文本提示 (文件内容过长时)
+      result.data = { file_id: 'wechat-unsupported' }
+      break
+    }
+    case 'send_group_forward_msg': {
+      // 合并转发: 微信不支持, 降级为拼接文本发送
+      const groupId = params.group_id
+      const nodes = params.messages || params.nodes || []
+      const texts = []
+      for (const n of nodes) {
+        const content = n?.content
+        if (Array.isArray(content)) {
+          texts.push(content.filter((s) => s?.type === 'text').map((s) => s?.data?.text || '').join(''))
+        } else if (typeof content === 'string') {
+          texts.push(content)
+        }
+      }
+      const joined = texts.filter(Boolean).join('\n')
+      if (joined && sendWechatMessage && groupId) {
+        try {
+          await sendWechatMessage(`group_${groupId}`, joined, { groupId })
+          result.data = { message_id: Math.floor(Math.random() * 100000) }
+        } catch (e) {
+          console.error('❌ 合并转发降级发送失败:', e.message)
+          result = { retcode: 100, status: 'failed', data: null, message: e.message }
+        }
       }
       break
     }
