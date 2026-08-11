@@ -412,8 +412,9 @@ async function handleApiCall(msg) {
       break
     }
     case 'upload_group_file': {
-      // 微信无法上传群文件 → 返回成功但降级为发送文本提示 (文件内容过长时)
-      result.data = { file_id: 'wechat-unsupported' }
+      // 微信无法上传群文件 → 诚实失败 (retcode 100), 插件走降级/跳过, 避免"假成功"误导
+      // (修复 2026-08-11: 之前返回假 file_id → daily_analysis 认为上传成功清禁言缓存, 但群里没文件)
+      result = { retcode: 100, status: 'failed', data: null, message: '微信不支持上传群文件, 请使用图片发送或文本' }
       break
     }
     case 'send_group_forward_msg': {
@@ -466,8 +467,23 @@ async function handleApiCall(msg) {
       }
       break
     }
-    default:
-      result = { retcode: 0, status: 'ok', data: {} }
+    default: {
+      // 未实现 action: 区分读写策略 (修复 2026-08-11, agent 审查 P1):
+      // - get_* 返回空数据 (插件可容错, 如 get_image/get_file → 回退原始引用)
+      // - set_*/delete_*/upload_* 返回 retcode 100 失败 (插件感知不支持, 走降级, 避免误导性成功)
+      // - friend_poke/send_poke/set_msg_emoji_like 等微信无等价物 → 静默成功 (不影响主流程)
+      const a = String(action || '')
+      const readOnly = a.startsWith('get_')
+      const silentPoke = !readOnly && (a === 'friend_poke' || a === 'send_poke' || a === 'set_msg_emoji_like' || a === 'set_qq_profile' || a === 'set_qq_avatar' || a.includes('album') || a.includes('group_root'))
+      if (silentPoke) {
+        result = { retcode: 0, status: 'ok', data: {} } // 静默成功, 微信无此功能但失败会中断插件
+      } else if (readOnly) {
+        result = { retcode: 0, status: 'ok', data: [] } // 读取: 空数据, 插件回退
+      } else {
+        result = { retcode: 100, status: 'failed', data: null, message: `action ${a} 在微信桥接上不支持` } // 写入: 诚实失败
+      }
+      break
+    }
   }
 
   if (msg.echo !== undefined && ws && ws.readyState === WebSocket.OPEN) {
