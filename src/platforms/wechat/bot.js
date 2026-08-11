@@ -393,7 +393,7 @@ export function createWechatBot(options = {}) {
           // 已知插件命令 (无 / 前缀): 也 forceAt 唤醒, 否则插件 handler 不触发 (修复 2026-08-10:
           // "画像 @群友" 等命令不带 @机器人 → AstrBot 不唤醒 → 插件不执行 → 落 LLM 答非所问)
           const cmdWord = (content.trimStart().split(/\s+/)[0] || '').replace(/^@[一-龥a-zA-Z0-9_\-]{1,20}/, '')
-          const knownCommands = ['画像', '查看画像', '正画像', '负画像', '克隆人格', '切换人格', '文生图', 'aiimg', '生图', '画图', '绘图', '出图', '改图', '图生图', '修图', 'aiedit', '自拍', '批量', '重发图片', '群分析', '白名单', '管理员', '打卡', '查询', '搜索', '天气', 'help', '帮助', '菜单']
+          const knownCommands = ['画像', '查看画像', '正画像', '负画像', '克隆人格', '切换人格', '恢复人格', '文生图', 'aiimg', '生图', '画图', '绘图', '出图', '改图', '图生图', '修图', 'aiedit', '自拍', '自拍参考', '批量', '重发图片', '视频', '视频预设列表', '文生图预设列表', '预设列表', '改图帮助', '群分析', '设置格式', '设置模板', '查看模板', '分析设置', '增量状态', '白名单', '管理员', '喜报', '悲报', 'moe', '搜番', 'mcs', '一言', '今天吃什么', '喜加一', '表情帮助', 'meme帮助', 'meme菜单', '表情列表', 'meme列表', '表情信息', 'meme信息', '单表情禁用', '单meme禁用', '单表情启用', '单meme启用', '表情启用', 'meme启用', '表情禁用', 'meme禁用', '表情资源', 'meme资源', '表情资源状态', '表情状态', 'meme状态', '禁用列表', 'learning_status', 'start_learning', 'stop_learning', 'force_learning', 'remember', 'affection_status', 'set_mood', 'spectrecore', 'sc', 'enhance', '打卡', '查询', '搜索', '天气', 'help', '帮助', '菜单']
           // 前缀匹配: "白名单添加" 命中 "白名单" 等
           const isKnownCmd = knownCommands.some((k) => cmdWord === k || cmdWord.startsWith(k))
           if (isKnownCmd) {
