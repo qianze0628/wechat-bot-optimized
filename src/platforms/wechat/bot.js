@@ -528,8 +528,17 @@ const target = getSendTarget(sessionId)
             videoFileBox = FileBox.fromBuffer(buf, 'video.mp4')
             console.log(`🔬 视频 base64 → FileBox: ${buf.length} 字节`)
           } else if (media?.videoUrl) {
-            videoFileBox = FileBox.fromUrl(media.videoUrl, { name: 'video.mp4' })
-            console.log(`🔬 视频 URL → FileBox: ${media.videoUrl}`)
+            // 修复 (2026-08-12): api聚合插件的 video 是 file:// 本地路径, fromUrl 只支持 HTTP(S) →
+            // 用 fromFile 加载本地文件; 只有 http(s) URL 才 fromUrl。
+            if (media.videoUrl.startsWith('file://')) {
+              // file:///C:/x → C:/x (去掉 file:/// 前缀, 保留盘符; 中文路径需 URL 解码)
+              const localPath = decodeURIComponent(media.videoUrl.slice('file://'.length).replace(/^\/+/, ''))
+              videoFileBox = FileBox.fromFile(localPath, 'video.mp4')
+              console.log(`🔬 视频 本地文件 → FileBox: ${localPath}`)
+            } else {
+              videoFileBox = FileBox.fromUrl(media.videoUrl, { name: 'video.mp4' })
+              console.log(`🔬 视频 URL → FileBox: ${media.videoUrl}`)
+            }
           }
         } catch (e) {
           console.log('🔬 视频 FileBox 创建失败:', e.message)
@@ -543,8 +552,15 @@ const target = getSendTarget(sessionId)
             audioFileBox = FileBox.fromBuffer(buf, 'audio.mp3')
             console.log(`🔬 音频 base64 → FileBox: ${buf.length} 字节`)
           } else if (media?.audioUrl) {
-            audioFileBox = FileBox.fromUrl(media.audioUrl, { name: 'audio.mp3' })
-            console.log(`🔬 音频 URL → FileBox: ${media.audioUrl}`)
+            // 修复 (2026-08-12): 本地 file:// 路径用 fromFile (同视频)
+            if (media.audioUrl.startsWith('file://')) {
+              const localPath = decodeURIComponent(media.audioUrl.slice('file://'.length).replace(/^\/+/, ''))
+              audioFileBox = FileBox.fromFile(localPath, 'audio.mp3')
+              console.log(`🔬 音频 本地文件 → FileBox: ${localPath}`)
+            } else {
+              audioFileBox = FileBox.fromUrl(media.audioUrl, { name: 'audio.mp3' })
+              console.log(`🔬 音频 URL → FileBox: ${media.audioUrl}`)
+            }
           }
         } catch (e) {
           console.log('🔬 音频 FileBox 创建失败:', e.message)
